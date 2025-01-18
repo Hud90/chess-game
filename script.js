@@ -81,8 +81,6 @@ function drawPieces()
     }
 }
 
-
-
 // Images would not load without this pause
 let imagesLoaded = 0;
 const totalImages = Object.keys(pieces).length;
@@ -95,3 +93,26 @@ for (let piece in pieces) {
         }
     };
 }
+
+let selectedPiece = null;
+let selectedSquare = null;
+
+canvas.addEventListener('click', (event) => 
+{
+    const col = Math.floor(event.offsetX / square_size);
+    const row = Math.floor(event.offsetY / square_size);
+
+    if(selectedPiece)
+    {
+        startBoard[row][col] = selectedPiece;
+        startBoard[selectedSquare[0]][selectedSquare[1]] = null;
+        selectedPiece = null;
+        drawBoard();
+        drawPieces();
+    }
+    else
+    {
+        selectedPiece = startBoard[row][col];
+        selectedSquare = [row, col];
+    }
+});
