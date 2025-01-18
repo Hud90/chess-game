@@ -54,14 +54,14 @@ pieces['bk'].src = 'assets/black_king.png';
 
 // Rendering pieces
 const startBoard = [
-    ['wr', 'wn', 'wb', 'wq', 'wk', 'wb', 'wn', 'wr'],
-    ['wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp'],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
+    ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br'],
     ['bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp'],
-    ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br']
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    [null, null, null, null, null, null, null, null],
+    ['wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp'],
+    ['wr', 'wn', 'wb', 'wq', 'wk', 'wb', 'wn', 'wr']
 ];
 
 function drawPieces()
@@ -81,6 +81,46 @@ function drawPieces()
     }
 }
 
+// Highlight Function
+function highlightMove(row, col)
+{
+    const x = col * square_size + square_size / 2;
+    const y = row * square_size + square_size / 2;
+    c.beginPath();
+    c.arc(x, y, square_size * 0.2, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(0, 255, 0, 0.5)';  // Semi-transparent green
+    c.fill();
+    c.strokeStyle = 'green';
+    c.stroke();
+}
+
+// Game Piece Logic
+function validSquare(row, col)  // Checking to see if the square is within the board
+{
+    return row >= 0 && row < board_size && col >= 0 && col < board_size;
+}
+
+function getPawnMoves(row, col, color)
+{
+    const moves = [];
+    const direction = color === 'w' ? -1 : 1;   //
+
+    if(validSquare(row + direction, col) && !startBoard[row + direction][col])
+    {
+        moves.push([row + direction, col]);
+        
+        if ((color === 'w' && row === 6) || (color === 'b' && row === 1))
+        {
+            if (!startBoard[row + 2 * direction][col])
+            {
+                moves.push([row + 2 * direction, col]);
+            }
+        }
+    }
+
+    return moves;
+}
+
 // Images would not load without this pause
 let imagesLoaded = 0;
 const totalImages = Object.keys(pieces).length;
@@ -97,6 +137,7 @@ for (let piece in pieces) {
 let selectedPiece = null;
 let selectedSquare = null;
 
+// Event Listening
 canvas.addEventListener('click', (event) => 
 {
     const col = Math.floor(event.offsetX / square_size);
@@ -107,6 +148,7 @@ canvas.addEventListener('click', (event) =>
         startBoard[row][col] = selectedPiece;
         startBoard[selectedSquare[0]][selectedSquare[1]] = null;
         selectedPiece = null;
+        selectedSquare = null;
         drawBoard();
         drawPieces();
     }
@@ -114,5 +156,26 @@ canvas.addEventListener('click', (event) =>
     {
         selectedPiece = startBoard[row][col];
         selectedSquare = [row, col];
+
+        if(selectedPiece)
+        {
+            drawBoard();
+            drawPieces();
+
+            const pieceType = selectedPiece.slice(1);   // Get the piece type
+            const pieceColor = selectedPiece[0];        // "w" or "b"
+
+            if(pieceType === 'p')   // If pawn
+            {
+                const moves = getPawnMoves(row, col, pieceColor);
+                moves.forEach(([moveRow, moveCol]) =>
+                {
+                    highlightMove(moveRow, moveCol);    // Highlight valid squares
+                });
+            }
+
+            // Add other piece logic here !
+
+        }
     }
 });
