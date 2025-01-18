@@ -109,11 +109,26 @@ function getPawnMoves(row, col, color)
     {
         moves.push([row + direction, col]);
         
-        if ((color === 'w' && row === 6) || (color === 'b' && row === 1))
+        if((color === 'w' && row === 6) || (color === 'b' && row === 1))
         {
             if (!startBoard[row + 2 * direction][col])
             {
                 moves.push([row + 2 * direction, col]);
+            }
+        }
+    }
+
+    for(let i = -1; i <= 1; i += 2) // Loop to check the left and right diagonal squares
+    {
+        const captureRow = row + direction;
+        const captureCol = col + i;
+
+        if(validSquare(captureRow, captureCol))
+        {
+            const targetPiece = startBoard[captureRow][captureCol];
+            if (targetPiece && targetPiece[0] !== color)    // If different color, capture
+            {
+                moves.push([captureRow, captureCol]);
             }
         }
     }
@@ -137,6 +152,8 @@ for (let piece in pieces) {
 let selectedPiece = null;
 let selectedSquare = null;
 
+let validMoves = []; // To store valid moves for the selected piece
+
 // Event Listening
 canvas.addEventListener('click', (event) => 
 {
@@ -145,12 +162,35 @@ canvas.addEventListener('click', (event) =>
 
     if(selectedPiece)
     {
-        startBoard[row][col] = selectedPiece;
-        startBoard[selectedSquare[0]][selectedSquare[1]] = null;
-        selectedPiece = null;
-        selectedSquare = null;
-        drawBoard();
-        drawPieces();
+        const targetPiece = startBoard[row][col];
+        const pieceColor = selectedPiece[0];
+        
+        // If valid move
+        if(validMoves.some(([validRow, validCol]) => validRow === row && validCol === col))
+        {
+            // If same color return
+            if(targetPiece && targetPiece[0] === pieceColor)
+            {
+                return;
+            }
+            // Else valid and move the piece
+            startBoard[row][col] = selectedPiece;
+            startBoard[selectedSquare[0]][selectedSquare[1]] = null;
+            selectedPiece = null;
+            selectedSquare = null;
+            validMoves = [];
+            drawBoard();
+            drawPieces();
+        }
+        else
+        {
+            // Not valid
+            selectedPiece = null;
+            selectedSquare = null;
+            validMoves = [];
+            drawBoard();
+            drawPieces();
+        }
     }
     else
     {
@@ -159,6 +199,8 @@ canvas.addEventListener('click', (event) =>
 
         if(selectedPiece)
         {
+            validMoves = [];
+
             drawBoard();
             drawPieces();
 
@@ -167,8 +209,8 @@ canvas.addEventListener('click', (event) =>
 
             if(pieceType === 'p')   // If pawn
             {
-                const moves = getPawnMoves(row, col, pieceColor);
-                moves.forEach(([moveRow, moveCol]) =>
+                validMoves = getPawnMoves(row, col, pieceColor);
+                validMoves.forEach(([moveRow, moveCol]) =>
                 {
                     highlightMove(moveRow, moveCol);    // Highlight valid squares
                 });
