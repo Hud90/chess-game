@@ -116,3 +116,13 @@ canvas.addEventListener('click', (event) =>
         selectedSquare = [row, col];
     }
 });
+
+/*
+Piece Movement: Implement piece-specific movement rules (e.g., rooks move in straight lines, knights move in L-shapes).
+
+Valid Move Checking: Check whether the move is valid (e.g., check for obstacles or valid capture conditions).
+
+Game State: Track whose turn it is, and whether the game is over (checkmate or stalemate).
+
+UI Improvements: Add highlights for valid moves, or display captured pieces.
+*/
