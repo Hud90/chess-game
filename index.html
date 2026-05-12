@@ -1,15 +1,70 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>  <!-- Setting up the meta information/external files -->
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chess Game</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>  <!-- This is what is visible to the user -->
-    <!-- Creating a canvas -->
-    <canvas id="board" width="600" height="600"></canvas>
 
-    <script src="script.js"></script>
+    <link rel="stylesheet"
+    href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+
+    <link rel="stylesheet" href="style.css">
+
+    <title>Chess App</title>
+</head>
+
+<body>
+
+<!-- SIDE SELECT (ONLY ONE UI) -->
+<div id="start-screen">
+    <div class="menu">
+        <h2>Chess Setup</h2>
+
+        <label>Stockfish Rating: <span id="level-display">0</span></label>
+        <input id="level" type="range" min="0" max="2000" value="0">
+
+        <button onclick="chooseSide('w')">Play White</button>
+        <button onclick="chooseSide('b')">Play Black</button>
+    </div>
+</div>
+
+<!-- GAME OVER SCREEN -->
+<div id="game-over" class="hidden">
+    <div class="menu">
+        <h2 id="game-result">Game Over</h2>
+
+        <button onclick="restartGame()">Play Again</button>
+    </div>
+</div>
+
+<div id="board-wrapper">
+
+    <div id="board" style="width: 600px"></div>
+
+    <!-- optional overlay -->
+    <div id="overlay"></div>
+
+</div>
+
+<!-- promotion UI -->
+<div id="promo" class="hidden">
+    <div class="promo-box">
+        <button data-piece="q">♕</button>
+        <button data-piece="r">♖</button>
+        <button data-piece="b">♗</button>
+        <button data-piece="n">♘</button>
+    </div>
+</div>
+
+<!-- jQuery -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<!-- chess.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+<!-- chessboard.js -->
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+
+<script src="script.js"></script>
+
 </body>
 </html>

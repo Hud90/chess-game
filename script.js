@@ -1,233 +1,506 @@
-// Setting up and drawing the chess board
-const canvas = document.getElementById('board');
-const c = canvas.getContext('2d');
-const board_size = 8;
+var game = new Chess();
 
-const square_size = canvas.width / board_size;
+// =========================
+// BOARD
+// =========================
+var board = null;
 
-function drawBoard()
-{
-    for(let row = 0; row < board_size; row++)
-    {
-        for(let col = 0; col < board_size; col++)
-            {
-                const x = col * square_size;
-                const y = row * square_size;
-                // If the square is even, do the first choice, else do the second
-                c.fillStyle = (row + col) % 2 === 0 ? '#f0d9b5' : '#b58863';
-                c.fillRect(x, y, square_size, square_size);
-            }        
-    }
+// =========================
+// STOCKFISH
+// =========================
+var stockfish = new Worker("./stockfish.js");
+
+var engineReady = false;
+var engineThinking = false;
+
+// =========================
+// STATE
+// =========================
+var playerColor = "w";
+var gameStarted = false;
+
+var engineRating = 800;
+
+var candidateMoves = [];
+var lastMoveSquares = [];
+
+// promotion state
+var pendingPromotion = null;
+
+// =========================
+// PROMOTION UI (FIXED)
+// =========================
+function showPromotion(from, to) {
+
+    pendingPromotion = { from, to };
+
+    $("#promo").removeClass("hidden");
+
+    $("#promo button").off("click").on("click", function () {
+
+        var piece = $(this).data("piece");
+
+        game.move({
+            from,
+            to,
+            promotion: piece
+        });
+
+        board.position(game.fen(), false);
+        setLastMove(from, to);
+
+        $("#promo").addClass("hidden");
+
+        checkGameState();
+        setTimeout(makeEngineMove, 200);
+    });
 }
 
-drawBoard();
+// =========================
+// ENGINE INIT
+// =========================
+stockfish.postMessage("uci");
 
-// Setting up each piece
-const pieces = {
-    'wp': new Image(),
-    'wr': new Image(),
-    'wn': new Image(),
-    'wb': new Image(),
-    'wq': new Image(),
-    'wk': new Image(),
-    'bp': new Image(),
-    'br': new Image(),
-    'bn': new Image(),
-    'bb': new Image(),
-    'bq': new Image(),
-    'bk': new Image()
+stockfish.onmessage = function (e) {
+
+    var line = e.data;
+    console.log("SF:", line);
+
+    if (line === "uciok") {
+        stockfish.postMessage("isready");
+    }
+
+    if (line === "readyok") {
+        engineReady = true;
+
+        stockfish.postMessage("ucinewgame");
+
+        // ⭐ IMPORTANT: REAL WEAKENING METHOD
+        stockfish.postMessage("setoption name UCI_LimitStrength value true");
+        stockfish.postMessage("setoption name UCI_Elo value " + engineRating);
+
+        stockfish.postMessage("setoption name MultiPV value 3");
+    }
+
+    if (!gameStarted) return;
+
+    if (line.startsWith("info") && line.includes(" pv ")) {
+        var match = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+        if (match) candidateMoves.push(match[1]);
+    }
+
+    if (line.startsWith("bestmove")) {
+        handleEngineMove(line);
+    }
 };
 
-// Image source paths
-pieces['wp'].src = 'assets/white_pawn.png';
-pieces['wr'].src = 'assets/white_rook.png';
-pieces['wn'].src = 'assets/white_knight.png';
-pieces['wb'].src = 'assets/white_bishop.png';
-pieces['wq'].src = 'assets/white_queen.png';
-pieces['wk'].src = 'assets/white_king.png';
-pieces['bp'].src = 'assets/black_pawn.png';
-pieces['br'].src = 'assets/black_rook.png';
-pieces['bn'].src = 'assets/black_knight.png';
-pieces['bb'].src = 'assets/black_bishop.png';
-pieces['bq'].src = 'assets/black_queen.png';
-pieces['bk'].src = 'assets/black_king.png';
+// =========================
+// UPDATE ENGINE STRENGTH LIVE
+// =========================
+function updateEngineStrength() {
 
-// Rendering pieces
-const startBoard = [
-    ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br'],
-    ['bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp', 'bp'],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    [null, null, null, null, null, null, null, null],
-    ['wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp', 'wp'],
-    ['wr', 'wn', 'wb', 'wq', 'wk', 'wb', 'wn', 'wr']
-];
+    if (!engineReady) return;
 
-function drawPieces()
-{
-    for(let row = 0; row < board_size; row++)
-    {
-        for(let col = 0; col < board_size; col++)
-        {
-            const piece = startBoard[row][col];
-            if(piece)
-            {
-                const x = col * square_size;
-                const y = row * square_size + 2;
-                c.drawImage(pieces[piece], x, y, square_size * 0.9, square_size * 0.9);
-            }
-        }
-    }
+    stockfish.postMessage("setoption name UCI_Elo value " + engineRating);
 }
 
-// Highlight Function
-function highlightMove(row, col)
-{
-    const x = col * square_size + square_size / 2;
-    const y = row * square_size + square_size / 2;
-    c.beginPath();
-    c.arc(x, y, square_size * 0.2, 0, Math.PI * 2);
-    c.fillStyle = 'rgba(0, 255, 0, 0.5)';  // Semi-transparent green
-    c.fill();
-    c.strokeStyle = 'green';
-    c.stroke();
-}
+// =========================
+// ENGINE MOVE LOGIC
+// =========================
+function handleEngineMove(line) {
 
-// Game Piece Logic
-function validSquare(row, col)  // Checking to see if the square is within the board
-{
-    return row >= 0 && row < board_size && col >= 0 && col < board_size;
-}
+    engineThinking = false;
 
-function getPawnMoves(row, col, color)
-{
-    const moves = [];
-    const direction = color === 'w' ? -1 : 1;   //
+    if (game.game_over()) return;
 
-    if(validSquare(row + direction, col) && !startBoard[row + direction][col])
-    {
-        moves.push([row + direction, col]);
-        
-        if((color === 'w' && row === 6) || (color === 'b' && row === 1))
-        {
-            if (!startBoard[row + 2 * direction][col])
-            {
-                moves.push([row + 2 * direction, col]);
-            }
-        }
+    var bestMove = line.split(" ")[1];
+    if (!bestMove || bestMove === "(none)") return;
+
+    var legalMoves = game.moves({ verbose: true });
+
+    var chosen = bestMove;
+
+    // ====================================
+    // EXTREME LOW-ELO BLUNDER SYSTEM
+    // ====================================
+
+    // rating 0-2000 → blunder %
+    var blunderChance = 1 - (engineRating / 2000);
+
+    // rating 0 = 100% blunder
+    // rating 1000 = 50%
+    // rating 2000 = 0%
+
+    // massive scaling for very weak bots
+    if (engineRating < 300) {
+        blunderChance = 0.95;
     }
 
-    for(let i = -1; i <= 1; i += 2) // Loop to check the left and right diagonal squares
-    {
-        const captureRow = row + direction;
-        const captureCol = col + i;
+    if (engineRating < 150) {
+        blunderChance = 0.98;
+    }
 
-        if(validSquare(captureRow, captureCol))
-        {
-            const targetPiece = startBoard[captureRow][captureCol];
-            if (targetPiece && targetPiece[0] !== color)    // If different color, capture
-            {
-                moves.push([captureRow, captureCol]);
+    // ====================================
+    // PICK RANDOM BAD MOVE
+    // ====================================
+
+    if (Math.random() < blunderChance) {
+
+        // prioritize terrible moves
+        var badMoves = [];
+
+        legalMoves.forEach(function(m) {
+
+            // avoid checks/captures for weak play
+            if (
+                !m.captured &&
+                !m.san.includes("+") &&
+                !m.san.includes("#")
+            ) {
+                badMoves.push(m);
             }
+        });
+
+        if (badMoves.length > 0) {
+
+            var rand =
+                badMoves[Math.floor(Math.random() * badMoves.length)];
+
+            chosen =
+                rand.from +
+                rand.to +
+                (rand.promotion || "");
+
+        } else {
+
+            var rand =
+                legalMoves[Math.floor(Math.random() * legalMoves.length)];
+
+            chosen =
+                rand.from +
+                rand.to +
+                (rand.promotion || "");
         }
     }
 
-    return moves;
+    playMove(chosen);
 }
 
-// Images would not load without this pause
-let imagesLoaded = 0;
-const totalImages = Object.keys(pieces).length;
+// =========================
+// PLAY MOVE (WITH PROPER PROMOTION)
+// =========================
+function playMove(move) {
 
-for (let piece in pieces) {
-    pieces[piece].onload = function() {
-        imagesLoaded++;
-        if (imagesLoaded === totalImages) {
-            drawPieces(); // Call drawPieces after all images are loaded
-        }
-    };
-}
+    var from = move.substring(0, 2);
+    var to = move.substring(2, 4);
+    var promo = move.length > 4 ? move[4] : "q";
 
-let selectedPiece = null;
-let selectedSquare = null;
+    var piece = game.get(from);
 
-let validMoves = []; // To store valid moves for the selected piece
-
-// Event Listening
-canvas.addEventListener('click', (event) => 
-{
-    const col = Math.floor(event.offsetX / square_size);
-    const row = Math.floor(event.offsetY / square_size);
-
-    if(selectedPiece)
-    {
-        const targetPiece = startBoard[row][col];
-        const pieceColor = selectedPiece[0];
-        
-        // If valid move
-        if(validMoves.some(([validRow, validCol]) => validRow === row && validCol === col))
-        {
-            // If same color return
-            if(targetPiece && targetPiece[0] === pieceColor)
-            {
-                return;
-            }
-            // Else valid and move the piece
-            startBoard[row][col] = selectedPiece;
-            startBoard[selectedSquare[0]][selectedSquare[1]] = null;
-            selectedPiece = null;
-            selectedSquare = null;
-            validMoves = [];
-            drawBoard();
-            drawPieces();
-        }
-        else
-        {
-            // Not valid
-            selectedPiece = null;
-            selectedSquare = null;
-            validMoves = [];
-            drawBoard();
-            drawPieces();
-        }
+    // ✅ REAL PROMOTION FIX
+    if (
+        piece &&
+        piece.type === "p" &&
+        ((piece.color === "w" && to[1] === "8") ||
+         (piece.color === "b" && to[1] === "1"))
+    ) {
+        showPromotion(from, to);
+        return;
     }
-    else
-    {
-        selectedPiece = startBoard[row][col];
-        selectedSquare = [row, col];
 
-        if(selectedPiece)
-        {
-            validMoves = [];
+    game.move({ from, to, promotion: promo });
 
-            drawBoard();
-            drawPieces();
+    board.position(game.fen(), false);
+    setLastMove(from, to);
 
-            const pieceType = selectedPiece.slice(1);   // Get the piece type
-            const pieceColor = selectedPiece[0];        // "w" or "b"
+    checkGameState();
+}
 
-            if(pieceType === 'p')   // If pawn
-            {
-                validMoves = getPawnMoves(row, col, pieceColor);
-                validMoves.forEach(([moveRow, moveCol]) =>
-                {
-                    highlightMove(moveRow, moveCol);    // Highlight valid squares
-                });
-            }
+// =========================
+// ENGINE MOVE REQUEST
+// =========================
+function makeEngineMove() {
 
-            // Add other piece logic here !
+    if (!gameStarted) return;
+    if (game.game_over()) return;
+    if (engineThinking) return;
 
-        }
+    if (game.turn() === playerColor) return;
+
+    engineThinking = true;
+
+    candidateMoves = [];
+
+    updateEngineStrength();
+
+    stockfish.postMessage(
+        "position fen " + game.fen()
+    );
+
+    // ====================================
+    // REAL THINKING TIME SCALING
+    // ====================================
+
+    var thinkTime = 50;
+
+    if (engineRating > 200) thinkTime = 100;
+    if (engineRating > 600) thinkTime = 150;
+    if (engineRating > 1000) thinkTime = 250;
+    if (engineRating > 1500) thinkTime = 400;
+
+    stockfish.postMessage(
+        "go movetime " + thinkTime
+    );
+}
+
+// =========================
+// BOARD INIT
+// =========================
+board = Chessboard("board", {
+    draggable: true,
+    position: "start",
+    pieceTheme: "img/chesspieces/{piece}.png",
+
+    onDragStart,
+    onDrop,
+    onSnapEnd: function () {
+        board.position(game.fen());
     }
 });
 
-/*
-Piece Movement: Implement piece-specific movement rules (e.g., rooks move in straight lines, knights move in L-shapes).
+window.chooseSide = chooseSide;
 
-Valid Move Checking: Check whether the move is valid (e.g., check for obstacles or valid capture conditions).
+// =========================
+// START GAME
+// =========================
+function chooseSide(color) {
 
-Game State: Track whose turn it is, and whether the game is over (checkmate or stalemate).
+    playerColor = color;
+    gameStarted = true;
 
-UI Improvements: Add highlights for valid moves, or display captured pieces.
-*/
+    board.orientation(color === "b" ? "black" : "white");
+
+    game.reset();
+    clearAllUI();
+    board.position(game.fen(), false);
+
+    $("#start-screen").fadeOut(200);
+
+    if (playerColor === "b") {
+        setTimeout(makeEngineMove, 500);
+    }
+}
+
+// =========================
+// SLIDER (0–2000 ELO)
+// =========================
+$("#level").on("input", function () {
+
+    engineRating = parseInt(this.value);
+    $("#level-display").text(engineRating);
+
+    updateEngineStrength();
+});
+
+// =========================
+// PLAYER MOVE
+// =========================
+function onDragStart(source, piece) {
+
+    if (!gameStarted) return false;
+    if (game.game_over()) return false;
+    if (engineThinking) return false;
+
+    clearMoves();
+
+    if (
+        (game.turn() === "w" && piece.startsWith("b")) ||
+        (game.turn() === "b" && piece.startsWith("w"))
+    ) return false;
+
+    showMoves(source);
+}
+
+function onDrop(source, target) {
+
+    clearMoves();
+
+    var piece = game.get(source);
+
+    var isPromotion =
+        piece &&
+        piece.type === "p" &&
+        (
+            (piece.color === "w" && target[1] === "8") ||
+            (piece.color === "b" && target[1] === "1")
+        );
+
+    if (isPromotion) {
+
+        pendingPromotion = { from: source, to: target };
+
+        // ==============================
+        // 1. CREATE TEMP VISUAL STATE
+        // ==============================
+        var tempGame = new Chess(game.fen());
+
+        // DO NOT promote yet — force pawn move only
+        tempGame.remove(source);
+        tempGame.put(
+            piece,
+            target
+        );
+
+        // show pawn on promotion square
+        board.position(tempGame.fen(), false);
+
+        // ==============================
+        // 2. SHOW PROMOTION UI
+        // ==============================
+        $("#promo").removeClass("hidden");
+
+        $("#promo button")
+            .off("click")
+            .on("click", function () {
+
+                var promoPiece = $(this).data("piece");
+
+                // NOW commit real move
+                var move = game.move({
+                    from: source,
+                    to: target,
+                    promotion: promoPiece
+                });
+
+                if (!move) {
+                    $("#promo").addClass("hidden");
+                    board.position(game.fen(), false);
+                    return;
+                }
+
+                // final correct board
+                board.position(game.fen(), false);
+
+                setLastMove(source, target);
+
+                $("#promo").addClass("hidden");
+
+                checkGameState();
+
+                setTimeout(makeEngineMove, 200);
+            });
+
+        return "snapback";
+    }
+
+    // =========================
+    // NORMAL MOVE
+    // =========================
+    var move = game.move({
+        from: source,
+        to: target
+    });
+
+    if (!move) return "snapback";
+
+    setLastMove(source, target);
+
+    board.position(game.fen(), false);
+
+    checkGameState();
+
+    setTimeout(makeEngineMove, 200);
+}
+
+// =========================
+// GAME STATE
+// =========================
+function restartGame() {
+
+    game.reset();
+    board.position(game.fen(), false);
+
+    engineThinking = false;
+    gameStarted = false;
+
+    candidateMoves = [];
+    lastMoveSquares = [];
+
+    $("#game-over").addClass("hidden");
+    $("#start-screen").fadeIn(200);
+}
+
+function checkGameState() {
+
+    if (!game.game_over()) return false;
+
+    let text = "";
+
+    if (game.in_checkmate()) {
+        text = "Checkmate!";
+    }
+    else if (game.in_stalemate()) {
+        text = "Stalemate!";
+    }
+    else if (game.in_threefold_repetition()) {
+        text = "Draw (Repetition)!";
+    }
+    else if (game.in_draw()) {
+        text = "Draw!";
+    }
+    else {
+        text = "Game Over";
+    }
+
+    $("#game-result").text(text);
+    $("#game-over").removeClass("hidden");
+
+    return true;
+}
+
+// =========================
+// UI HELPERS
+// =========================
+function showMoves(square) {
+
+    clearMoves();
+
+    game.moves({ square, verbose: true }).forEach(m => {
+        $("#board .square-" + m.to)
+            .addClass(m.captured ? "capture-dot" : "move-dot");
+    });
+}
+
+function clearMoves() {
+    $("#board .square-55d63")
+        .removeClass("move-dot capture-dot");
+}
+
+// =========================
+// LAST MOVE
+// =========================
+function setLastMove(from, to) {
+
+    clearLastMove();
+    lastMoveSquares = [from, to];
+
+    $("#board .square-" + from).addClass("last-move");
+    $("#board .square-" + to).addClass("last-move");
+}
+
+function clearLastMove() {
+
+    lastMoveSquares.forEach(sq => {
+        $("#board .square-" + sq).removeClass("last-move");
+    });
+
+    lastMoveSquares = [];
+}
+
+// =========================
+// RESET UI
+// =========================
+function clearAllUI() {
+    clearMoves();
+    clearLastMove();
+}
