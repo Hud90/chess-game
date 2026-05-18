@@ -24,11 +24,116 @@ var engineRating = 800;
 var candidateMoves = [];
 var lastMoveSquares = [];
 
-// promotion state
 var pendingPromotion = null;
 
+// engine move flag (IMPORTANT FIX)
+var isEngineMove = false;
+
 // =========================
-// PROMOTION UI (FIXED)
+// MOVE HISTORY
+// =========================
+var moveHistory = [];
+
+// =========================
+// SLIDER FIX (IMPORTANT)
+// =========================
+$("#level").on("input change", function () {
+
+    engineRating = parseInt(this.value, 10);
+    $("#level-display").text(engineRating);
+
+    if (engineReady) {
+        stockfish.postMessage(
+            "setoption name UCI_Elo value " + engineRating
+        );
+    }
+});
+
+// =========================
+// MOVE HISTORY UI
+// =========================
+function addMoveToHistory() {
+
+    var sanHistory = game.history();
+    var lastMove = sanHistory[sanHistory.length - 1];
+
+    var moveNumber = Math.ceil(sanHistory.length / 2);
+
+    if (sanHistory.length % 2 === 1) {
+        moveHistory.push(moveNumber + ". " + lastMove + " ");
+    } else {
+        moveHistory[moveHistory.length - 1] += lastMove;
+    }
+
+    renderHistory();
+}
+
+function renderHistory() {
+
+    var html = "";
+
+    moveHistory.forEach(function (m) {
+        html += "<div class='move-row'>" + m + "</div>";
+    });
+
+    $("#moves-list").html(html);
+
+    var el = document.getElementById("move-history");
+    el.scrollTop = el.scrollHeight;
+}
+
+// =========================
+// MOVE DOTS
+// =========================
+function showMoves(square) {
+
+    clearMoves();
+
+    var moves = game.moves({
+        square: square,
+        verbose: true
+    });
+
+    moves.forEach(function (m) {
+
+        var el = $("#board .square-" + m.to);
+
+        if (m.captured) {
+            el.addClass("capture-dot");
+        } else {
+            el.addClass("move-dot");
+        }
+    });
+}
+
+function clearMoves() {
+    $("#board .square-55d63").removeClass("move-dot capture-dot");
+}
+
+// =========================
+// LAST MOVE
+// =========================
+function setLastMove(from, to) {
+
+    clearLastMove();
+
+    lastMoveSquares = [from, to];
+
+    $("#board .square-" + from).addClass("last-move");
+    $("#board .square-" + to).addClass("last-move");
+}
+
+function clearLastMove() {
+
+    lastMoveSquares.forEach(function (sq) {
+        $("#board .square-" + sq).removeClass("last-move");
+    });
+
+    lastMoveSquares = [];
+}
+
+// =========================
+// PROMOTION UI (PLAYER ONLY)
 // =========================
 function showPromotion(from, to) {
 
@@ -36,24 +141,26 @@ function showPromotion(from, to) {
 
     $("#promo").removeClass("hidden");
 
-    $("#promo button").off("click").on("click", function () {
+    $("#promo button")
+        .off("click")
+        .on("click", function () {
 
-        var piece = $(this).data("piece");
+            var piece = $(this).data("piece");
 
-        game.move({
-            from,
-            to,
-            promotion: piece
+            game.move({ from, to, promotion: piece });
+
+            board.position(game.fen(), false);
+
+            setLastMove(from, to);
+
+            addMoveToHistory();
+
+            $("#promo").addClass("hidden");
+
+            checkGameState();
+
+            setTimeout(makeEngineMove, 200);
         });
-
-        board.position(game.fen(), false);
-        setLastMove(from, to);
-
-        $("#promo").addClass("hidden");
-
-        checkGameState();
-        setTimeout(makeEngineMove, 200);
-    });
 }
 
 // =========================
@@ -64,29 +171,39 @@ stockfish.postMessage("uci");
 stockfish.onmessage = function (e) {
 
     var line = e.data;
-    console.log("SF:", line);
 
     if (line === "uciok") {
         stockfish.postMessage("isready");
+        return;
     }
 
     if (line === "readyok") {
+
         engineReady = true;
+        engineThinking = false;
 
         stockfish.postMessage("ucinewgame");
 
-        // ⭐ IMPORTANT: REAL WEAKENING METHOD
+        stockfish.postMessage("setoption name Skill Level value 20");
         stockfish.postMessage("setoption name UCI_LimitStrength value true");
         stockfish.postMessage("setoption name UCI_Elo value " + engineRating);
+        stockfish.postMessage("setoption name MultiPV value 8");
 
-        stockfish.postMessage("setoption name MultiPV value 3");
+        return;
     }
 
     if (!gameStarted) return;
 
     if (line.startsWith("info") && line.includes(" pv ")) {
+
         var match = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
-        if (match) candidateMoves.push(match[1]);
+
+        if (match) {
+            var move = match[1];
+            if (!candidateMoves.includes(move)) {
+                candidateMoves.push(move);
+            }
+        }
     }
 
     if (line.startsWith("bestmove")) {
@@ -95,99 +212,25 @@ stockfish.onmessage = function (e) {
 };
 
 // =========================
-// UPDATE ENGINE STRENGTH LIVE
-// =========================
-function updateEngineStrength() {
-
-    if (!engineReady) return;
-
-    stockfish.postMessage("setoption name UCI_Elo value " + engineRating);
-}
-
-// =========================
-// ENGINE MOVE LOGIC
+// ENGINE MOVE
 // =========================
 function handleEngineMove(line) {
 
     engineThinking = false;
+    isEngineMove = true;
 
+    if (!gameStarted) return;
     if (game.game_over()) return;
 
     var bestMove = line.split(" ")[1];
-    if (!bestMove || bestMove === "(none)") return;
 
-    var legalMoves = game.moves({ verbose: true });
+    playMove(bestMove);
 
-    var chosen = bestMove;
-
-    // ====================================
-    // EXTREME LOW-ELO BLUNDER SYSTEM
-    // ====================================
-
-    // rating 0-2000 → blunder %
-    var blunderChance = 1 - (engineRating / 2000);
-
-    // rating 0 = 100% blunder
-    // rating 1000 = 50%
-    // rating 2000 = 0%
-
-    // massive scaling for very weak bots
-    if (engineRating < 300) {
-        blunderChance = 0.95;
-    }
-
-    if (engineRating < 150) {
-        blunderChance = 0.98;
-    }
-
-    // ====================================
-    // PICK RANDOM BAD MOVE
-    // ====================================
-
-    if (Math.random() < blunderChance) {
-
-        // prioritize terrible moves
-        var badMoves = [];
-
-        legalMoves.forEach(function(m) {
-
-            // avoid checks/captures for weak play
-            if (
-                !m.captured &&
-                !m.san.includes("+") &&
-                !m.san.includes("#")
-            ) {
-                badMoves.push(m);
-            }
-        });
-
-        if (badMoves.length > 0) {
-
-            var rand =
-                badMoves[Math.floor(Math.random() * badMoves.length)];
-
-            chosen =
-                rand.from +
-                rand.to +
-                (rand.promotion || "");
-
-        } else {
-
-            var rand =
-                legalMoves[Math.floor(Math.random() * legalMoves.length)];
-
-            chosen =
-                rand.from +
-                rand.to +
-                (rand.promotion || "");
-        }
-    }
-
-    playMove(chosen);
+    isEngineMove = false;
 }
 
 // =========================
-// PLAY MOVE (WITH PROPER PROMOTION)
+// PLAY MOVE
 // =========================
 function playMove(move) {
 
@@ -197,94 +240,163 @@ function playMove(move) {
 
     var piece = game.get(from);
 
-    // ✅ REAL PROMOTION FIX
+    // PROMOTION FIX
     if (
         piece &&
         piece.type === "p" &&
         ((piece.color === "w" && to[1] === "8") ||
          (piece.color === "b" && to[1] === "1"))
     ) {
-        showPromotion(from, to);
-        return;
+        if (!isEngineMove) {
+            showPromotion(from, to);
+            return;
+        }
     }
 
-    game.move({ from, to, promotion: promo });
+    var result = game.move({
+        from,
+        to,
+        promotion: promo
+    });
+
+    if (!result) return;
 
     board.position(game.fen(), false);
+
     setLastMove(from, to);
+
+    addMoveToHistory();
+
+    clearMoves();
 
     checkGameState();
 }
 
 // =========================
-// ENGINE MOVE REQUEST
+// ENGINE REQUEST
 // =========================
 function makeEngineMove() {
 
     if (!gameStarted) return;
+    if (!engineReady) return;
     if (game.game_over()) return;
     if (engineThinking) return;
-
     if (game.turn() === playerColor) return;
 
     engineThinking = true;
-
     candidateMoves = [];
 
-    updateEngineStrength();
+    stockfish.postMessage("position fen " + game.fen());
+    stockfish.postMessage("go movetime 600");
+}
 
-    stockfish.postMessage(
-        "position fen " + game.fen()
-    );
+// =========================
+// GAME STATE (FIXED)
+// =========================
+function checkGameState() {
 
-    // ====================================
-    // REAL THINKING TIME SCALING
-    // ====================================
+    if (!game.game_over()) return;
 
-    var thinkTime = 50;
+    let text = "";
 
-    if (engineRating > 200) thinkTime = 100;
-    if (engineRating > 600) thinkTime = 150;
-    if (engineRating > 1000) thinkTime = 250;
-    if (engineRating > 1500) thinkTime = 400;
+    if (game.in_checkmate()) {
+        text = (game.turn() === "w" ? "Black" : "White") + " wins by checkmate";
+    } else if (game.in_stalemate()) {
+        text = "Stalemate";
+    } else if (game.in_draw()) {
+        text = "Draw";
+    } else {
+        text = "Game over";
+    }
 
-    stockfish.postMessage(
-        "go movetime " + thinkTime
-    );
+    $("#game-result").text(text);
+
+    // IMPORTANT: delay popup so board finishes rendering move
+    setTimeout(() => {
+        $("#game-over").removeClass("hidden");
+    }, 250);
+
+    engineThinking = false;
 }
 
 // =========================
 // BOARD INIT
 // =========================
 board = Chessboard("board", {
+
     draggable: true,
     position: "start",
     pieceTheme: "img/chesspieces/{piece}.png",
 
-    onDragStart,
-    onDrop,
+    onDragStart: function (source, piece) {
+
+        if (!gameStarted) return false;
+        if (game.game_over()) return false;
+        if (engineThinking) return false;
+
+        if (
+            (game.turn() === "w" && piece.startsWith("b")) ||
+            (game.turn() === "b" && piece.startsWith("w"))
+        ) return false;
+
+        showMoves(source);
+
+        return true;
+    },
+
+    onDrop: function (source, target) {
+
+        var move = game.move({
+            from: source,
+            to: target,
+            promotion: "q"
+        });
+
+        if (!move) return "snapback";
+
+        setLastMove(source, target);
+
+        addMoveToHistory();
+
+        clearMoves();
+
+        board.position(game.fen(), false);
+
+        checkGameState();
+
+        setTimeout(makeEngineMove, 200);
+    },
+
     onSnapEnd: function () {
         board.position(game.fen());
     }
 });
 
-window.chooseSide = chooseSide;
-
 // =========================
 // START GAME
 // =========================
+window.chooseSide = chooseSide;
+
 function chooseSide(color) {
 
     playerColor = color;
+
+    game.reset();
+    board.position("start", false);
+
+    engineThinking = false;
+    candidateMoves = [];
+    moveHistory = [];
+    pendingPromotion = null;
+
     gameStarted = true;
 
     board.orientation(color === "b" ? "black" : "white");
 
-    game.reset();
-    clearAllUI();
-    board.position(game.fen(), false);
+    $("#start-screen").hide();
 
-    $("#start-screen").fadeOut(200);
+    $("#moves-list").html("");
+    $("#game-over").addClass("hidden");
 
     if (playerColor === "b") {
         setTimeout(makeEngineMove, 500);
@@ -292,215 +404,34 @@ function chooseSide(color) {
 }
 
 // =========================
-// SLIDER (0–2000 ELO)
+// STUB
 // =========================
-$("#level").on("input", function () {
-
-    engineRating = parseInt(this.value);
-    $("#level-display").text(engineRating);
-
-    updateEngineStrength();
-});
-
-// =========================
-// PLAYER MOVE
-// =========================
-function onDragStart(source, piece) {
-
-    if (!gameStarted) return false;
-    if (game.game_over()) return false;
-    if (engineThinking) return false;
-
-    clearMoves();
-
-    if (
-        (game.turn() === "w" && piece.startsWith("b")) ||
-        (game.turn() === "b" && piece.startsWith("w"))
-    ) return false;
-
-    showMoves(source);
-}
-
-function onDrop(source, target) {
-
-    clearMoves();
-
-    var piece = game.get(source);
-
-    var isPromotion =
-        piece &&
-        piece.type === "p" &&
-        (
-            (piece.color === "w" && target[1] === "8") ||
-            (piece.color === "b" && target[1] === "1")
-        );
-
-    if (isPromotion) {
-
-        pendingPromotion = { from: source, to: target };
-
-        // ==============================
-        // 1. CREATE TEMP VISUAL STATE
-        // ==============================
-        var tempGame = new Chess(game.fen());
-
-        // DO NOT promote yet — force pawn move only
-        tempGame.remove(source);
-        tempGame.put(
-            piece,
-            target
-        );
-
-        // show pawn on promotion square
-        board.position(tempGame.fen(), false);
-
-        // ==============================
-        // 2. SHOW PROMOTION UI
-        // ==============================
-        $("#promo").removeClass("hidden");
-
-        $("#promo button")
-            .off("click")
-            .on("click", function () {
-
-                var promoPiece = $(this).data("piece");
-
-                // NOW commit real move
-                var move = game.move({
-                    from: source,
-                    to: target,
-                    promotion: promoPiece
-                });
-
-                if (!move) {
-                    $("#promo").addClass("hidden");
-                    board.position(game.fen(), false);
-                    return;
-                }
-
-                // final correct board
-                board.position(game.fen(), false);
-
-                setLastMove(source, target);
-
-                $("#promo").addClass("hidden");
-
-                checkGameState();
-
-                setTimeout(makeEngineMove, 200);
-            });
-
-        return "snapback";
-    }
-
-    // =========================
-    // NORMAL MOVE
-    // =========================
-    var move = game.move({
-        from: source,
-        to: target
+function clearLastMove() {
+    lastMoveSquares.forEach(function (sq) {
+        $("#board .square-" + sq).removeClass("last-move");
     });
-
-    if (!move) return "snapback";
-
-    setLastMove(source, target);
-
-    board.position(game.fen(), false);
-
-    checkGameState();
-
-    setTimeout(makeEngineMove, 200);
+    lastMoveSquares = [];
 }
 
-// =========================
-// GAME STATE
-// =========================
 function restartGame() {
 
     game.reset();
-    board.position(game.fen(), false);
+    board.position("start", false);
 
     engineThinking = false;
-    gameStarted = false;
-
     candidateMoves = [];
+    moveHistory = [];
+    pendingPromotion = null;
+    isEngineMove = false;
+
     lastMoveSquares = [];
 
+    $("#moves-list").html("");
     $("#game-over").addClass("hidden");
-    $("#start-screen").fadeIn(200);
-}
 
-function checkGameState() {
+    board.orientation(playerColor === "b" ? "black" : "white");
 
-    if (!game.game_over()) return false;
-
-    let text = "";
-
-    if (game.in_checkmate()) {
-        text = "Checkmate!";
+    if (playerColor === "b") {
+        setTimeout(makeEngineMove, 500);
     }
-    else if (game.in_stalemate()) {
-        text = "Stalemate!";
-    }
-    else if (game.in_threefold_repetition()) {
-        text = "Draw (Repetition)!";
-    }
-    else if (game.in_draw()) {
-        text = "Draw!";
-    }
-    else {
-        text = "Game Over";
-    }
-
-    $("#game-result").text(text);
-    $("#game-over").removeClass("hidden");
-
-    return true;
-}
-
-// =========================
-// UI HELPERS
-// =========================
-function showMoves(square) {
-
-    clearMoves();
-
-    game.moves({ square, verbose: true }).forEach(m => {
-        $("#board .square-" + m.to)
-            .addClass(m.captured ? "capture-dot" : "move-dot");
-    });
-}
-
-function clearMoves() {
-    $("#board .square-55d63")
-        .removeClass("move-dot capture-dot");
-}
-
-// =========================
-// LAST MOVE
-// =========================
-function setLastMove(from, to) {
-
-    clearLastMove();
-    lastMoveSquares = [from, to];
-
-    $("#board .square-" + from).addClass("last-move");
-    $("#board .square-" + to).addClass("last-move");
-}
-
-function clearLastMove() {
-
-    lastMoveSquares.forEach(sq => {
-        $("#board .square-" + sq).removeClass("last-move");
-    });
-
-    lastMoveSquares = [];
-}
-
-// =========================
-// RESET UI
-// =========================
-function clearAllUI() {
-    clearMoves();
-    clearLastMove();
 }

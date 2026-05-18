@@ -1,10 +1,11 @@
 body {
+    margin: 0;
+    height: 100vh;
+    background: #2b2b2b;
+
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    margin: 0;
-    background: #2b2b2b;
 }
 
 /* =========================
@@ -209,4 +210,41 @@ body {
 
 #game-over.hidden {
     display: none;
+}
+
+#game-container {
+    display: flex;
+    gap: 15px;
+    align-items: flex-start;
+}
+
+#move-history {
+    width: 200px;
+    height: 480px;
+    overflow-y: auto;
+    background: #1e1e1e;
+    color: white;
+    padding: 10px;
+    font-family: Arial;
+    border-radius: 6px;
+}
+
+#move-history-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.move-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.move-num {
+    opacity: 0.6;
+    width: 30px;
+}
+
+.move-text {
+    width: 70px;
 }
