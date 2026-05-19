@@ -39,13 +39,44 @@
 <!-- MOVE HISTORY SIDEBAR -->
 <div id="game-container">
 
-    <div id="board-wrapper">
-        <div id="board"></div>
+    <!-- EVAL BAR -->
+    <div id="eval-wrapper">
+        <div id="eval-score">0.0</div>
+
+        <div id="eval-bar-container">
+            <div id="eval-bar"></div>
+        </div>
     </div>
 
+    <!-- BOARD AREA -->
+    <div id="board-area">
+
+        <div id="black-captures" class="captures"></div>
+
+        <div id="board-wrapper">
+            <div id="board"></div>
+        </div>
+
+        <div id="white-captures" class="captures"></div>
+
+    </div>
+
+    <!-- MOVE HISTORY -->
     <div id="move-history">
+
         <div id="move-history-title">Moves</div>
+
         <div id="moves-list"></div>
+
+        <div id="history-controls">
+            <button id="back-btn">◀</button>
+            <button id="forward-btn">▶</button>
+
+            <button id="save-game-btn">Save</button>
+            <button id="load-last-btn">Load Last</button>
+            <button id="share-btn">Share</button>
+        </div>
+
     </div>
 
 </div>
