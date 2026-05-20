@@ -22,6 +22,7 @@ var engineThinking = false;
 // =========================
 var playerColor = "w";
 var gameStarted = false;
+var pendingPromotion = null;
 
 var engineRating = 800;
 
@@ -62,15 +63,15 @@ const pieceValues = {
 // ======================================================
 $("#level").on("input change", function () {
 
-    engineRating = parseInt(this.value);
+    const raw = parseInt(this.value);
 
-    $("#level-display").text(engineRating);
+    // chess.com-style curve (VERY IMPORTANT FIX)
+    engineRating = mapElo(raw);
+
+    $("#level-display").text(raw);
 
     if (engineReady) {
-
-        stockfish.postMessage(
-            "setoption name UCI_Elo value " + engineRating
-        );
+        applyEngineSettings();
     }
 });
 
@@ -310,6 +311,55 @@ function requestEvaluation() {
     evalEngine.postMessage("go depth 16");
 }
 
+function mapElo(x) {
+
+    // smooth curve instead of linear (this fixes "difficulty 0 is impossible")
+
+    const t = x / 1000;
+
+    // slow start, faster later (chess.com feel)
+    const curved = Math.pow(t, 1.6);
+
+    return Math.round(300 + curved * (2000 - 300));
+}
+
+function getBlunderChance(rawSlider) {
+
+    // THIS is what actually makes bots feel real
+
+    if (rawSlider < 150) return 0.45;   // blunder city
+    if (rawSlider < 300) return 0.30;
+    if (rawSlider < 500) return 0.18;
+    if (rawSlider < 700) return 0.10;
+    if (rawSlider < 850) return 0.04;
+    return 0.01;
+}
+
+function applyEngineSettings() {
+
+    const slider = parseInt($("#level").val());
+
+    let skill = 20;
+
+    if (slider < 100) skill = 0;
+    else if (slider < 250) skill = 3;
+    else if (slider < 400) skill = 6;
+    else if (slider < 600) skill = 10;
+    else if (slider < 800) skill = 16;
+
+    stockfish.postMessage(
+        "setoption name UCI_LimitStrength value true"
+    );
+
+    stockfish.postMessage(
+        "setoption name Skill Level value " + skill
+    );
+
+    stockfish.postMessage(
+        "setoption name UCI_Elo value " + engineRating
+    );
+}
+
 // ======================================================
 // MAIN ENGINE INIT
 // ======================================================
@@ -329,22 +379,11 @@ stockfish.onmessage = function (e) {
     if (line === "readyok") {
 
         engineReady = true;
-
         engineThinking = false;
 
         stockfish.postMessage("ucinewgame");
 
-        stockfish.postMessage(
-            "setoption name Skill Level value 20"
-        );
-
-        stockfish.postMessage(
-            "setoption name UCI_LimitStrength value true"
-        );
-
-        stockfish.postMessage(
-            "setoption name UCI_Elo value " + engineRating
-        );
+        applyEngineSettings(); // <-- IMPORTANT CHANGE
 
         return;
     }
@@ -417,15 +456,88 @@ function handleEngineMove(line) {
 
     engineThinking = false;
 
-    isEngineMove = true;
-
     if (!gameStarted || game.game_over()) return;
 
-    var bestMove = line.split(" ")[1];
+    let bestMove = line.split(" ")[1];
+
+    const slider = parseInt($("#level").val());
+
+    const moves = game.moves({ verbose: true });
+
+    // =========================================
+    // LOW LEVEL = PLAY RANDOM BAD CHESS
+    // =========================================
+
+    if (slider < 100) {
+
+        // 70% random move
+        if (Math.random() < 0.70) {
+
+            const random =
+                moves[Math.floor(Math.random() * moves.length)];
+
+            bestMove =
+                random.from +
+                random.to +
+                (random.promotion || "");
+        }
+    }
+
+    // =========================================
+    // BEGINNER
+    // =========================================
+
+    else if (slider < 300) {
+
+        if (Math.random() < 0.45) {
+
+            const random =
+                moves[Math.floor(Math.random() * moves.length)];
+
+            bestMove =
+                random.from +
+                random.to +
+                (random.promotion || "");
+        }
+    }
+
+    // =========================================
+    // INTERMEDIATE
+    // =========================================
+
+    else if (slider < 600) {
+
+        if (Math.random() < 0.20) {
+
+            const random =
+                moves[Math.floor(Math.random() * moves.length)];
+
+            bestMove =
+                random.from +
+                random.to +
+                (random.promotion || "");
+        }
+    }
+
+    // =========================================
+    // STRONG
+    // =========================================
+
+    else if (slider < 850) {
+
+        if (Math.random() < 0.08) {
+
+            const random =
+                moves[Math.floor(Math.random() * moves.length)];
+
+            bestMove =
+                random.from +
+                random.to +
+                (random.promotion || "");
+        }
+    }
 
     playMove(bestMove);
-
-    isEngineMove = false;
 }
 
 // ======================================================
@@ -474,13 +586,9 @@ function playMove(move) {
 function makeEngineMove() {
 
     if (!gameStarted) return;
-
     if (!engineReady) return;
-
     if (game.game_over()) return;
-
     if (engineThinking) return;
-
     if (game.turn() === playerColor) return;
 
     engineThinking = true;
@@ -489,8 +597,22 @@ function makeEngineMove() {
         "position fen " + game.fen()
     );
 
+    const slider = parseInt($("#level").val());
+
+    // VERY IMPORTANT:
+    // weaker bots think WAY less
+
+    let moveTime = 50;
+
+    if (slider < 100) moveTime = 25;
+    else if (slider < 250) moveTime = 40;
+    else if (slider < 400) moveTime = 70;
+    else if (slider < 600) moveTime = 120;
+    else if (slider < 800) moveTime = 250;
+    else moveTime = 500;
+
     stockfish.postMessage(
-        "go movetime 600"
+        "go movetime " + moveTime
     );
 }
 
@@ -531,6 +653,39 @@ function checkGameState() {
     }, 250);
 }
 
+function showPromotionPopup(color, callback) {
+
+    const promo = $("#promo");
+
+    // optional: flip symbols for black
+    const pieces = {
+        q: color === "w" ? "♕" : "♛",
+        r: color === "w" ? "♖" : "♜",
+        b: color === "w" ? "♗" : "♝",
+        n: color === "w" ? "♘" : "♞"
+    };
+
+    promo.find("button").each(function () {
+
+        const piece = $(this).data("piece");
+
+        $(this).text(pieces[piece]);
+    });
+
+    promo.removeClass("hidden");
+
+    $("#promo button")
+        .off("click")
+        .on("click", function () {
+
+            const piece = $(this).data("piece");
+
+            promo.addClass("hidden");
+
+            callback(piece);
+        });
+}
+
 // ======================================================
 // BOARD INIT
 // ======================================================
@@ -568,6 +723,66 @@ board = Chessboard("board", {
 
     onDrop: function (source, target) {
 
+        const piece = game.get(source);
+
+        // =========================================
+        // PLAYER PROMOTION
+        // =========================================
+
+        // =========================================
+        // PLAYER PROMOTION
+        // =========================================
+
+        if (
+            piece &&
+            piece.type === "p" &&
+            (
+                (piece.color === "w" && target[1] === "8") ||
+                (piece.color === "b" && target[1] === "1")
+            )
+        ) {
+
+            // build visual board state
+            const currentPos = board.position();
+
+            delete currentPos[source];
+
+            currentPos[target] =
+                piece.color + "P";
+
+            // redraw AFTER chessboard removes dragged piece
+            setTimeout(function () {
+
+                board.position(currentPos, false);
+
+            }, 0);
+
+            showPromotionPopup(piece.color, function (promotionPiece) {
+
+                const move = game.move({
+                    from: source,
+                    to: target,
+                    promotion: promotionPiece
+                });
+
+                if (!move) {
+
+                    board.position(game.fen(), false);
+
+                    return;
+                }
+
+                finishPlayerMove(source, target);
+            });
+
+            // stop default handling
+            return "trash";
+        }
+
+        // =========================================
+        // NORMAL MOVE
+        // =========================================
+
         var move = game.move({
             from: source,
             to: target,
@@ -576,27 +791,7 @@ board = Chessboard("board", {
 
         if (!move) return "snapback";
 
-        setLastMove(source, target);
-
-        addMoveToHistory();
-
-        updateCapturedPieces();
-
-        moveSnapshots.push(game.fen());
-
-        evalSnapshots.push(0);
-
-        currentViewIndex = moveSnapshots.length - 1;
-
-        board.position(game.fen(), false);
-
-        clearMoves();
-
-        requestEvaluation();
-
-        checkGameState();
-
-        setTimeout(makeEngineMove, 200);
+        finishPlayerMove(source, target);
     },
 
     onSnapEnd: function () {
@@ -604,6 +799,31 @@ board = Chessboard("board", {
         board.position(game.fen());
     }
 });
+
+function finishPlayerMove(source, target) {
+
+    setLastMove(source, target);
+
+    addMoveToHistory();
+
+    updateCapturedPieces();
+
+    moveSnapshots.push(game.fen());
+
+    evalSnapshots.push(0);
+
+    currentViewIndex = moveSnapshots.length - 1;
+
+    board.position(game.fen(), false);
+
+    clearMoves();
+
+    requestEvaluation();
+
+    checkGameState();
+
+    setTimeout(makeEngineMove, 200);
+}
 
 // ======================================================
 // START GAME
