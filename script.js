@@ -402,7 +402,7 @@ stockfish.onmessage = function (e) {
         return;
     }
 
-    if (!gameStarted) return;
+    if (!gameStarted && !reviewMode) return;
 
     if (line.startsWith("bestmove")) {
 
@@ -801,6 +801,9 @@ board = Chessboard("board", {
 
                 if (reviewMode) {
 
+                    clearHintUI();
+                    hintActive = false;
+
                     board.position(reviewGame.fen(), false);
 
                     setLastMove(source, target);
@@ -831,6 +834,9 @@ board = Chessboard("board", {
         if (!move) return "snapback";
 
         if (reviewMode) {
+
+            clearHintUI();
+            hintActive = false;
 
             board.position(reviewGame.fen(), false);
 
@@ -982,6 +988,7 @@ window.chooseSide = function (color) {
 // MOVE NAVIGATION
 // ======================================================
 $("#back-btn").on("click", function () {
+    clearHintUI();
 
     if (currentViewIndex <= 0) return;
 
@@ -1015,6 +1022,7 @@ $("#back-btn").on("click", function () {
 });
 
 $("#forward-btn").on("click", function () {
+    clearHintUI();
 
     if (currentViewIndex >= moveSnapshots.length - 1) {
         return;
@@ -1053,6 +1061,7 @@ $("#forward-btn").on("click", function () {
 // SAVE
 // ======================================================
 $("#save-game-btn").on("click", function () {
+    clearHintUI();
 
     localStorage.setItem(
         "saved_pgn",
@@ -1066,6 +1075,7 @@ $("#save-game-btn").on("click", function () {
 // LOAD
 // ======================================================
 $("#load-last-btn").on("click", function () {
+    clearHintUI();
 
     const pgn =
         localStorage.getItem("saved_pgn");
@@ -1081,6 +1091,7 @@ $("#load-last-btn").on("click", function () {
 // SHARE
 // ======================================================
 $("#share-btn").on("click", function () {
+    clearHintUI();
 
     const pgn = game.pgn();
 
@@ -1098,6 +1109,7 @@ $("#share-btn").on("click", function () {
 });
 
 $("#export-pgn-btn").on("click", function () {
+    clearHintUI();
 
     const pgn = game.pgn();
 
@@ -1116,6 +1128,7 @@ $("#export-pgn-btn").on("click", function () {
 });
 
 $("#new-game-btn").on("click", function () {
+    clearHintUI();
 
     restartGame();
 });
@@ -1128,20 +1141,24 @@ var hintMove = null;
 
 $("#hint-btn").on("click", function () {
 
+    const activeGame = getActiveGame();
+
     if (!gameStarted) return;
     if (!engineReady) return;
-    if (game.game_over()) return;
+    if (activeGame.game_over()) return;
     if (engineThinking) return;
 
     engineThinking = true;
     hintActive = true;
     hintMove = null;
 
-    // ask stockfish for best move
-    stockfish.postMessage("position fen " + game.fen());
+    // use CURRENT active position
+    stockfish.postMessage(
+        "position fen " + activeGame.fen()
+    );
+
     stockfish.postMessage("go depth 16");
 
-    // clear old hints
     clearHintUI();
 });
 

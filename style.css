@@ -225,7 +225,7 @@ body {
 }
 
 #move-history {
-    width: 360px;
+    width: 400px;
     height: 600px;
 
     background: #1e1e1e;
@@ -328,7 +328,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    transform: translateY(12px);
+    transform: translateY(13px);
 }
 
 /* Eval score fixed height */
