@@ -24,12 +24,20 @@ var playerColor = "w";
 var gameStarted = false;
 var pendingPromotion = null;
 
+var gameMode = "new"; // or "pgn"
+
 var engineRating = 800;
 
 var candidateMoves = [];
 var lastMoveSquares = [];
 
 var isEngineMove = false;
+
+// =========================
+// REVIEW MODE
+// =========================
+var reviewMode = false;
+var reviewGame = null;
 
 // =========================
 // MOVE HISTORY
@@ -65,7 +73,6 @@ $("#level").on("input change", function () {
 
     const raw = parseInt(this.value);
 
-    // chess.com-style curve (VERY IMPORTANT FIX)
     engineRating = mapElo(raw);
 
     $("#level-display").text(raw);
@@ -78,11 +85,17 @@ $("#level").on("input change", function () {
 // ======================================================
 // MOVE DOTS
 // ======================================================
+function getActiveGame() {
+    return reviewMode ? reviewGame : game;
+}
+
 function showMoves(square) {
 
     clearMoves();
 
-    var moves = game.moves({
+    const activeGame = getActiveGame();
+
+    var moves = activeGame.moves({
         square: square,
         verbose: true
     });
@@ -305,7 +318,13 @@ function requestEvaluation() {
 
     if (!evalReady) return;
 
-    const fen = moveSnapshots[currentViewIndex];
+    let fen;
+
+    if (reviewMode) {
+        fen = reviewGame.fen();
+    } else {
+        fen = moveSnapshots[currentViewIndex];
+    }
 
     evalEngine.postMessage("position fen " + fen);
     evalEngine.postMessage("go depth 16");
@@ -313,11 +332,8 @@ function requestEvaluation() {
 
 function mapElo(x) {
 
-    // smooth curve instead of linear (this fixes "difficulty 0 is impossible")
-
     const t = x / 1000;
 
-    // slow start, faster later (chess.com feel)
     const curved = Math.pow(t, 1.6);
 
     return Math.round(300 + curved * (2000 - 300));
@@ -325,9 +341,7 @@ function mapElo(x) {
 
 function getBlunderChance(rawSlider) {
 
-    // THIS is what actually makes bots feel real
-
-    if (rawSlider < 150) return 0.45;   // blunder city
+    if (rawSlider < 150) return 0.45;
     if (rawSlider < 300) return 0.30;
     if (rawSlider < 500) return 0.18;
     if (rawSlider < 700) return 0.10;
@@ -383,7 +397,7 @@ stockfish.onmessage = function (e) {
 
         stockfish.postMessage("ucinewgame");
 
-        applyEngineSettings(); // <-- IMPORTANT CHANGE
+        applyEngineSettings();
 
         return;
     }
@@ -391,6 +405,17 @@ stockfish.onmessage = function (e) {
     if (!gameStarted) return;
 
     if (line.startsWith("bestmove")) {
+
+        const move = line.split(" ")[1];
+
+        if (hintActive) {
+
+            hintActive = false;
+            engineThinking = false;
+
+            showHint(move);
+            return;
+        }
 
         handleEngineMove(line);
     }
@@ -435,16 +460,18 @@ evalEngine.onmessage = function (e) {
         score = value > 0 ? 10 : -10;
     }
 
-    // convert to White perspective
-    const fen = moveSnapshots[currentViewIndex];
+    let tempGame;
 
-    const tempGame = new Chess(fen);
+    if (reviewMode) {
+        tempGame = reviewGame;
+    } else {
+        const fen = moveSnapshots[currentViewIndex];
+        tempGame = new Chess(fen);
+    }
 
     if (tempGame.turn() === "b") {
         score *= -1;
     }
-
-    evalSnapshots[currentViewIndex] = score;
 
     updateEvalBar(score);
 };
@@ -464,13 +491,8 @@ function handleEngineMove(line) {
 
     const moves = game.moves({ verbose: true });
 
-    // =========================================
-    // LOW LEVEL = PLAY RANDOM BAD CHESS
-    // =========================================
-
     if (slider < 100) {
 
-        // 70% random move
         if (Math.random() < 0.70) {
 
             const random =
@@ -482,10 +504,6 @@ function handleEngineMove(line) {
                 (random.promotion || "");
         }
     }
-
-    // =========================================
-    // BEGINNER
-    // =========================================
 
     else if (slider < 300) {
 
@@ -501,10 +519,6 @@ function handleEngineMove(line) {
         }
     }
 
-    // =========================================
-    // INTERMEDIATE
-    // =========================================
-
     else if (slider < 600) {
 
         if (Math.random() < 0.20) {
@@ -518,10 +532,6 @@ function handleEngineMove(line) {
                 (random.promotion || "");
         }
     }
-
-    // =========================================
-    // STRONG
-    // =========================================
 
     else if (slider < 850) {
 
@@ -544,6 +554,7 @@ function handleEngineMove(line) {
 // PLAY MOVE
 // ======================================================
 function playMove(move) {
+    clearHintUI();
 
     var from = move.substring(0, 2);
 
@@ -585,6 +596,8 @@ function playMove(move) {
 // ======================================================
 function makeEngineMove() {
 
+    if (reviewMode) return;
+
     if (!gameStarted) return;
     if (!engineReady) return;
     if (game.game_over()) return;
@@ -598,9 +611,6 @@ function makeEngineMove() {
     );
 
     const slider = parseInt($("#level").val());
-
-    // VERY IMPORTANT:
-    // weaker bots think WAY less
 
     let moveTime = 50;
 
@@ -657,7 +667,6 @@ function showPromotionPopup(color, callback) {
 
     const promo = $("#promo");
 
-    // optional: flip symbols for black
     const pieces = {
         q: color === "w" ? "♕" : "♛",
         r: color === "w" ? "♖" : "♜",
@@ -699,19 +708,28 @@ board = Chessboard("board", {
 
     onDragStart: function (source, piece) {
 
-        if (!gameStarted) return false;
+        const activeGame = getActiveGame();
 
-        if (game.game_over()) return false;
+        if (!gameStarted && !reviewMode) return false;
 
-        if (engineThinking) return false;
+        if (!reviewMode) {
 
-        if (currentViewIndex !== moveSnapshots.length - 1) {
-            return false;
+            if (activeGame.game_over()) return false;
+
+            if (engineThinking) return false;
+
+            if (currentViewIndex !== moveSnapshots.length - 1) {
+                return false;
+            }
+
+            if (activeGame.turn() !== playerColor) {
+                return false;
+            }
         }
 
         if (
-            (game.turn() === "w" && piece.startsWith("b")) ||
-            (game.turn() === "b" && piece.startsWith("w"))
+            (activeGame.turn() === "w" && piece.startsWith("b")) ||
+            (activeGame.turn() === "b" && piece.startsWith("w"))
         ) {
             return false;
         }
@@ -723,11 +741,9 @@ board = Chessboard("board", {
 
     onDrop: function (source, target) {
 
-        const piece = game.get(source);
+        const activeGame = getActiveGame();
 
-        // =========================================
-        // PLAYER PROMOTION
-        // =========================================
+        const piece = activeGame.get(source);
 
         // =========================================
         // PLAYER PROMOTION
@@ -742,7 +758,19 @@ board = Chessboard("board", {
             )
         ) {
 
-            // build visual board state
+            const legalMoves = activeGame.moves({
+                square: source,
+                verbose: true
+            });
+
+            const isLegalPromotion = legalMoves.some(m =>
+                m.to === target && m.promotion
+            );
+
+            if (!isLegalPromotion) {
+                return "snapback";
+            }
+
             const currentPos = board.position();
 
             delete currentPos[source];
@@ -750,7 +778,6 @@ board = Chessboard("board", {
             currentPos[target] =
                 piece.color + "P";
 
-            // redraw AFTER chessboard removes dragged piece
             setTimeout(function () {
 
                 board.position(currentPos, false);
@@ -759,7 +786,7 @@ board = Chessboard("board", {
 
             showPromotionPopup(piece.color, function (promotionPiece) {
 
-                const move = game.move({
+                const move = activeGame.move({
                     from: source,
                     to: target,
                     promotion: promotionPiece
@@ -767,15 +794,27 @@ board = Chessboard("board", {
 
                 if (!move) {
 
-                    board.position(game.fen(), false);
+                    board.position(activeGame.fen(), false);
 
                     return;
                 }
 
-                finishPlayerMove(source, target);
+                if (reviewMode) {
+
+                    board.position(reviewGame.fen(), false);
+
+                    setLastMove(source, target);
+
+                    clearMoves();
+
+                    requestEvaluation();
+
+                } else {
+
+                    finishPlayerMove(source, target);
+                }
             });
 
-            // stop default handling
             return "trash";
         }
 
@@ -783,7 +822,7 @@ board = Chessboard("board", {
         // NORMAL MOVE
         // =========================================
 
-        var move = game.move({
+        var move = activeGame.move({
             from: source,
             to: target,
             promotion: "q"
@@ -791,16 +830,32 @@ board = Chessboard("board", {
 
         if (!move) return "snapback";
 
+        if (reviewMode) {
+
+            board.position(reviewGame.fen(), false);
+
+            setLastMove(source, target);
+
+            clearMoves();
+
+            requestEvaluation();
+
+            return;
+        }
+
         finishPlayerMove(source, target);
     },
 
     onSnapEnd: function () {
 
-        board.position(game.fen());
+        const activeGame = getActiveGame();
+
+        board.position(activeGame.fen());
     }
 });
 
 function finishPlayerMove(source, target) {
+    clearHintUI();
 
     setLastMove(source, target);
 
@@ -826,50 +881,99 @@ function finishPlayerMove(source, target) {
 }
 
 // ======================================================
+// REVIEW MODE
+// ======================================================
+function enterReviewMode() {
+
+    reviewMode = true;
+
+    reviewGame = new Chess();
+
+    const moves = game.history();
+
+    for (let i = 0; i < currentViewIndex; i++) {
+        reviewGame.move(moves[i]);
+    }
+
+    board.position(reviewGame.fen(), false);
+
+    clearMoves();
+
+    updateLastMoveFromSnapshot();
+
+    requestEvaluation();
+
+    $("#game-over").addClass("hidden");
+}
+
+function exitReviewMode() {
+
+    reviewMode = false;
+
+    reviewGame = null;
+
+    board.position(
+        moveSnapshots[currentViewIndex],
+        false
+    );
+
+    clearMoves();
+
+    updateLastMoveFromSnapshot();
+
+    requestEvaluation();
+}
+
+// ======================================================
 // START GAME
 // ======================================================
 window.chooseSide = function (color) {
 
     playerColor = color;
 
-    game.reset();
+    reviewMode = false;
+    reviewGame = null;
 
-    board.position("start", false);
+    if (gameMode === "new") {
+
+        game.reset();
+
+        moveSnapshots = [game.fen()];
+        evalSnapshots = [0];
+        currentViewIndex = 0;
+
+        board.position("start", false);
+    }
+
+    if (gameMode === "pgn") {
+
+        board.position(game.fen(), false);
+
+        rebuildSnapshotsFromGame();
+
+        renderHistoryFromGame();
+
+        currentViewIndex = moveSnapshots.length - 1;
+    }
 
     clearLastMove();
-
     engineThinking = false;
-
     gameStarted = true;
-
-    moveHistory = [];
-
-    moveSnapshots = [game.fen()];
-
-    evalSnapshots = [0];
-
-    currentViewIndex = 0;
 
     $("#start-screen").hide();
 
-    $("#moves-list").html("");
-
-    $("#white-captures").html("");
-
-    $("#black-captures").html("");
-
     $("#game-over").addClass("hidden");
 
-    board.orientation(
-        color === "b" ? "black" : "white"
-    );
+    // IMPORTANT FIX:
+    // restore captures from current game position
+    updateCapturedPieces();
+
+    board.orientation(color === "b" ? "black" : "white");
 
     updateEvalBar(0);
-
     requestEvaluation();
 
     if (playerColor === "b") {
-
         setTimeout(makeEngineMove, 500);
     }
 };
@@ -883,10 +987,25 @@ $("#back-btn").on("click", function () {
 
     currentViewIndex--;
 
-    board.position(
-        moveSnapshots[currentViewIndex],
-        false
-    );
+    if (reviewMode) {
+
+        reviewGame = new Chess();
+
+        const moves = game.history();
+
+        for (let i = 0; i < currentViewIndex; i++) {
+            reviewGame.move(moves[i]);
+        }
+
+        board.position(reviewGame.fen(), false);
+
+    } else {
+
+        board.position(
+            moveSnapshots[currentViewIndex],
+            false
+        );
+    }
 
     clearMoves();
 
@@ -903,10 +1022,25 @@ $("#forward-btn").on("click", function () {
 
     currentViewIndex++;
 
-    board.position(
-        moveSnapshots[currentViewIndex],
-        false
-    );
+    if (reviewMode) {
+
+        reviewGame = new Chess();
+
+        const moves = game.history();
+
+        for (let i = 0; i < currentViewIndex; i++) {
+            reviewGame.move(moves[i]);
+        }
+
+        board.position(reviewGame.fen(), false);
+
+    } else {
+
+        board.position(
+            moveSnapshots[currentViewIndex],
+            false
+        );
+    }
 
     clearMoves();
 
@@ -950,16 +1084,88 @@ $("#share-btn").on("click", function () {
 
     const pgn = game.pgn();
 
-    const encoded =
+    const encodedPGN =
         encodeURIComponent(pgn);
 
     const url =
-        `${location.origin}${location.pathname}?pgn=${encoded}`;
+        `${location.origin}${location.pathname}` +
+        `?pgn=${encodedPGN}` +
+        `&color=${playerColor}`;
 
     navigator.clipboard.writeText(url);
 
     alert("Share link copied");
 });
+
+$("#export-pgn-btn").on("click", function () {
+
+    const pgn = game.pgn();
+
+    const blob = new Blob([pgn], { type: "text/plain" });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = "game.pgn";
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+});
+
+$("#new-game-btn").on("click", function () {
+
+    restartGame();
+});
+
+// ======================================================
+// HINT SYSTEM
+// ======================================================
+var hintActive = false;
+var hintMove = null;
+
+$("#hint-btn").on("click", function () {
+
+    if (!gameStarted) return;
+    if (!engineReady) return;
+    if (game.game_over()) return;
+    if (engineThinking) return;
+
+    engineThinking = true;
+    hintActive = true;
+    hintMove = null;
+
+    // ask stockfish for best move
+    stockfish.postMessage("position fen " + game.fen());
+    stockfish.postMessage("go depth 16");
+
+    // clear old hints
+    clearHintUI();
+});
+
+function showHint(move) {
+
+    const from = move.substring(0, 2);
+    const to = move.substring(2, 4);
+
+    hintMove = { from, to };
+
+    clearHintUI();
+
+    // FULL GREEN OUTLINE ON PIECE TO MOVE
+    $("#board .square-" + from).addClass("hint-outline");
+
+    // optional: subtle target highlight (not required)
+    $("#board .square-" + to).addClass("hint-target");
+}
+
+function clearHintUI() {
+
+    $("#board .square-55d63")
+        .removeClass("hint-outline hint-target");
+}
 
 // ======================================================
 // SNAPSHOTS
@@ -1016,9 +1222,56 @@ function loadPGN(pgn) {
 
     updateLastMoveFromSnapshot();
 
+    updateCapturedPieces();
+
     gameStarted = true;
 
+    reviewMode = false;
+    reviewGame = null;
+
     requestEvaluation();
+
+    if (game.turn() !== playerColor) {
+        setTimeout(makeEngineMove, 300);
+    }
+}
+
+// ======================================================
+// LOAD SHARED PGN FROM URL
+// ======================================================
+
+const params = new URLSearchParams(window.location.search);
+
+const sharedPGN = params.get("pgn");
+
+const sharedColor = params.get("color");
+
+if (sharedColor === "b") {
+
+    playerColor = "b";
+
+    board.orientation("black");
+
+} else {
+
+    playerColor = "w";
+
+    board.orientation("white");
+}
+
+if (sharedPGN) {
+
+    try {
+        gameMode = "pgn";
+        loadPGN(decodeURIComponent(sharedPGN));
+        updateCapturedPieces();
+
+        $("#start-screen").show();
+
+    } catch (e) {
+
+        console.error("Failed to load shared PGN", e);
+    }
 }
 
 // ======================================================
@@ -1027,6 +1280,9 @@ function loadPGN(pgn) {
 function restartGame() {
 
     game.reset();
+
+    reviewMode = false;
+    reviewGame = null;
 
     board.position("start", false);
 
