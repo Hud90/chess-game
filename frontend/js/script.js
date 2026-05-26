@@ -8,10 +8,10 @@ var board = null;
 // =========================
 // STOCKFISH
 // =========================
-var stockfish = new Worker("./stockfish.js");
+var stockfish = new Worker("js/stockfish.js");
 
 // dedicated eval engine
-var evalEngine = new Worker("./stockfish.js");
+var evalEngine = new Worker("js/stockfish.js");
 
 var engineReady = false;
 var evalReady = false;
