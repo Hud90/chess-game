@@ -35,18 +35,24 @@ Move (Optional Future Optimization)
 # API Endpoints (Draft)
 
 ## Authentication
+```txt
 POST /auth/register
 POST /auth/login
 POST /auth/logout
+```
 
 ## Games
+```txt
 POST /games
 GET /games/{id}
 POST /games/{id}/move
 GET /games/history
+```
 
 ## Social/Stats
+```txt
 GET /leaderboard
+```
 
 # Authentication Notes
 
