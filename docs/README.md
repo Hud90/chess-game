@@ -37,6 +37,7 @@ The application uses:
 
 ## Project Structure
 
+```txt
 frontend/
 ├── index.html
 ├── css/
@@ -45,6 +46,7 @@ frontend/
 │   ├── script.js
 │   └── stockfish.js
 └── img/
+```
 
 ## Screenshots
 
