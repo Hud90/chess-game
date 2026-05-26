@@ -18,7 +18,7 @@ A browser-based chess application built with HTML, CSS, and JavaScript featuring
 
 ## Current State
 
-This project is currently frontend-only and runs entirely in the browser.
+This project currently features a playable frontend chess application with an in-progress FastAPI backend for authentication, persistence, and future multiplayer support.
 
 The application uses:
 - Custom UI built with vanilla HTML/CSS/JavaScript
@@ -52,15 +52,15 @@ frontend/
 
 ### Main Menu
 
-![Main Menu](../frontend/img/main-menu.PNG)
+![Main Menu](frontend/img/main-menu.PNG)
 
 ### Gameplay
 
-![Gameplay](../frontend/img/gameplay.PNG)
+![Gameplay](frontend/img/gameplay.PNG)
 
 ### Review Mode
 
-![Review Mode](../frontend/img/review-mode.PNG)
+![Review Mode](frontend/img/review-mode.PNG)
 
 ## Running the Project
 
