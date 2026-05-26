@@ -52,15 +52,15 @@ frontend/
 
 ### Main Menu
 
-![Main Menu](img/main-menu.PNG)
+![Main Menu](../frontend/img/main-menu.PNG)
 
 ### Gameplay
 
-![Gameplay](img/gameplay.PNG)
+![Gameplay](../frontend/img/gameplay.PNG)
 
 ### Review Mode
 
-![Review Mode](img/review-mode.PNG)
+![Review Mode](../frontend/img/review-mode.PNG)
 
 ## Running the Project
 
