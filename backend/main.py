@@ -1,9 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routers import users
+
+from database import engine
+from models import Base
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+app.include_router(users.router)
 
-# Allow frontend requests
 origins = [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
