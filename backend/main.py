@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import users
+from routers import games
 
 from database import engine
 from models import Base
@@ -9,6 +10,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 app.include_router(users.router)
+app.include_router(games.router)
 
 origins = [
     "http://127.0.0.1:5500",

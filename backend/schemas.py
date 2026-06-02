@@ -17,3 +17,17 @@ class UserResponse(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+
+
+class GameCreate(BaseModel):
+    pgn: str
+    result: str
+
+
+class GameResponse(BaseModel):
+    id: int
+    pgn: str
+    result: str
+
+    class Config:
+        from_attributes = True
