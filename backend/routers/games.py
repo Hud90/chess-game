@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import HTTPException
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -70,3 +71,34 @@ def get_my_games(
     games = db.scalars(statement).all()
 
     return games
+
+
+@router.delete("/{game_id}")
+def delete_game(
+    game_id: int,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+
+    # get user
+    statement = select(User).where(User.username == current_user)
+    user = db.scalar(statement)
+
+    # find game owned by user
+    statement = select(Game).where(
+        Game.id == game_id,
+        Game.user_id == user.id
+    )
+
+    game = db.scalar(statement)
+
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    db.delete(game)
+    db.commit()
+
+    return {
+        "message": "Game deleted",
+        "game_id": game_id
+    }

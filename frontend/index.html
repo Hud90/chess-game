@@ -14,6 +14,36 @@
 
 <body>
 
+    <div id="auth-screen">
+
+    <div class="menu">
+
+        <h2>Login</h2>
+
+        <input
+            id="username"
+            type="text"
+            placeholder="Username"
+        >
+
+        <input
+            id="password"
+            type="password"
+            placeholder="Password"
+        >
+
+        <button id="login-btn">
+            Login
+        </button>
+
+        <button id="register-btn">
+            Register
+        </button>
+
+    </div>
+
+</div>
+
 <!-- SIDE SELECT (ONLY ONE UI) -->
 <div id="start-screen">
     <div class="menu">
@@ -82,6 +112,12 @@
             <button id="hint-btn">Hint</button>
         </div>
 
+        <div id="saved-games-panel">
+            <div id="saved-games-title">Saved Games</div>
+
+            <div id="saved-games-list"></div>
+        </div>
+
     </div>
 
 </div>
@@ -93,6 +129,17 @@
         <button data-piece="r">♖</button>
         <button data-piece="b">♗</button>
         <button data-piece="n">♘</button>
+    </div>
+</div>
+
+<div id="delete-modal" class="modal hidden">
+    <div class="modal-content">
+        <p>Are you sure you want to delete this game?</p>
+
+        <div style="display: flex; gap: 10px; justify-content: center;">
+            <button id="confirm-delete">Delete</button>
+            <button id="cancel-delete">Cancel</button>
+        </div>
     </div>
 </div>
 

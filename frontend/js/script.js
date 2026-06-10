@@ -1,4 +1,165 @@
+function getToken() {
+    return localStorage.getItem("access_token");
+}
+
+$("#register-btn").on("click", async function () {
+
+    const username =
+        $("#username").val();
+
+    const password =
+        $("#password").val();
+
+    const response = await fetch(
+        "http://127.0.0.1:8000/users/",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username,
+                password
+            })
+        }
+    );
+
+    if (response.ok) {
+
+        alert("Account created");
+
+    } else {
+
+        alert("Failed to create account");
+    }
+});
+
+function showStartScreen() {
+    $("#auth-screen").hide();
+    $("#start-screen").css("display", "flex");
+}
+
+$("#login-btn").on("click", async function () {
+
+    const username =
+        $("#username").val();
+
+    const password =
+        $("#password").val();
+
+    const formData =
+        new URLSearchParams();
+
+    formData.append(
+        "username",
+        username
+    );
+
+    formData.append(
+        "password",
+        password
+    );
+
+    const response = await fetch(
+        "http://127.0.0.1:8000/users/login",
+        {
+            method: "POST",
+
+            headers: {
+                "Content-Type":
+                    "application/x-www-form-urlencoded"
+            },
+
+            body: formData
+        }
+    );
+
+    if (!response.ok) {
+
+        const error =
+            await response.json();
+
+        console.log(error);
+
+        alert("Login failed");
+
+        return;
+    }
+
+    const { access_token } = await response.json();
+
+    localStorage.setItem("access_token", access_token);
+
+    $("#auth-screen").hide();
+
+    showStartScreen();
+
+    loadSavedGamesList();
+});
+
+async function saveGame(result) {
+    console.log("GLOBAL saveGame called");
+
+    const token = getToken();
+    if (!token) return;
+
+    const response = await fetch(
+        "http://127.0.0.1:8000/games/save",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            },
+            body: JSON.stringify({
+                pgn: game.pgn(),
+                result: result
+            })
+        }
+    );
+
+    if (!response.ok) {
+        console.error("Failed to save game");
+        return;
+    }
+
+    const data = await response.json();
+    console.log("Saved game", data);
+
+    console.log("Refreshing saved games list...");
+    await loadSavedGamesList();
+    console.log("Done refreshing list");
+}
+
+async function loadGamesFromBackend() {
+    const token = getToken();
+
+    console.log("TOKEN BEING USED:", token);
+
+    const res = await fetch("http://127.0.0.1:8000/games/my-games", {
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        }
+    });
+
+    console.log("STATUS:", res.status);
+
+    const text = await res.text();
+    console.log("RAW RESPONSE:", text);
+
+    if (!res.ok) {
+        throw new Error("Request failed");
+    }
+
+    const games = JSON.parse(text);
+    console.log("Loaded games:", games);
+
+    return games;
+}
+
 var game = new Chess();
+let gameToDelete = null;
 
 // =========================
 // BOARD
@@ -654,6 +815,8 @@ function checkGameState() {
         text = "Game over";
     }
 
+    saveGame(text);
+
     $("#game-result").text(text);
 
     setTimeout(() => {
@@ -1060,31 +1223,126 @@ $("#forward-btn").on("click", function () {
 // ======================================================
 // SAVE
 // ======================================================
-$("#save-game-btn").on("click", function () {
+$("#save-game-btn").on("click", async function () {
     clearHintUI();
-
-    localStorage.setItem(
-        "saved_pgn",
-        game.pgn()
-    );
-
-    alert("Game saved");
+    await saveGame("Manual Save");
+    alert("Game saved to backend!");
 });
 
 // ======================================================
 // LOAD
 // ======================================================
-$("#load-last-btn").on("click", function () {
+$("#load-last-btn").on("click", async function () {
     clearHintUI();
 
-    const pgn =
-        localStorage.getItem("saved_pgn");
+    try {
+        const games = await loadGamesFromBackend();
 
-    if (!pgn) {
-        return alert("No saved game");
+        if (!games || games.length === 0) {
+            return alert("No saved games");
+        }
+
+        const lastGame = games[games.length - 1];
+
+        if (!lastGame || !lastGame.pgn) {
+            return alert("No PGN in latest game");
+        }
+
+        loadPGN(lastGame.pgn);
+
+    } catch (err) {
+        console.error("Load failed:", err);
+        alert("Failed to load game (check console)");
     }
+});
 
-    loadPGN(pgn);
+async function loadSavedGamesList() {
+    console.log("LOADING SAVED GAMES LIST NOW");
+
+    const token = getToken();
+
+    const res = await fetch("http://127.0.0.1:8000/games/my-games", {
+        headers: {
+            "Authorization": "Bearer " + token
+        }
+    });
+
+    const games = await res.json();
+
+    const container = $("#saved-games-list");
+    container.html("");
+
+    games.reverse().forEach(game => {
+
+        const div = $(`
+            <div class="saved-game-item">
+                <div class="saved-game-info">
+                    <div><b>${game.result}</b></div>
+                    <div style="font-size: 11px; opacity: 0.7;">
+                        ${game.created_at}
+                    </div>
+                </div>
+                <button class="delete-btn">Delete</button>
+            </div>
+        `);
+
+        // open game
+        div.on("click", function () {
+            loadPGN(game.pgn);
+        });
+
+        // delete game
+        div.find(".delete-btn").on("click", function (e) {
+            e.stopPropagation();
+
+            gameToDelete = game;
+
+            $("#delete-modal").removeClass("hidden");
+        });
+
+        container.append(div);
+    });
+}
+
+$("#confirm-delete").on("click", async function () {
+
+    if (!gameToDelete) return;
+
+    const btn = $("#confirm-delete");
+    btn.prop("disabled", true).text("Deleting...");
+
+    const token = getToken();
+
+    const res = await fetch(`http://127.0.0.1:8000/games/${gameToDelete.id}`, {
+        method: "DELETE",
+        headers: {
+            "Authorization": "Bearer " + token
+        }
+    });
+
+    btn.prop("disabled", false).text("Delete");
+
+    $("#delete-modal").addClass("hidden");
+
+    gameToDelete = null;
+
+    if (res.ok) {
+        await loadSavedGamesList();
+    } else {
+        alert("Failed to delete game");
+    }
+});
+
+$("#cancel-delete").on("click", function () {
+    gameToDelete = null;
+    $("#delete-modal").addClass("hidden");
+});
+
+$("#delete-modal").on("click", function (e) {
+    if (e.target.id === "delete-modal") {
+        gameToDelete = null;
+        $("#delete-modal").addClass("hidden");
+    }
 });
 
 // ======================================================
@@ -1283,7 +1541,10 @@ if (sharedPGN) {
         loadPGN(decodeURIComponent(sharedPGN));
         updateCapturedPieces();
 
-        $("#start-screen").show();
+        $("#start-screen").css(
+            "display",
+            "flex"
+        );
 
     } catch (e) {
 
@@ -1323,9 +1584,37 @@ function restartGame() {
 
     $("#black-captures").html("");
 
-    $("#start-screen").show();
+    $("#start-screen").css(
+        "display",
+        "flex"
+    );
 
     $("#game-over").addClass("hidden");
 
     updateEvalBar(0);
 }
+
+async function checkSession() {
+    const token = getToken();
+    if (!token) return false;
+
+    const res = await fetch("http://127.0.0.1:8000/users/me", {
+        headers: {
+            "Authorization": "Bearer " + token
+        }
+    });
+
+    return res.ok;
+}
+
+(async function init() {
+    const ok = await checkSession();
+
+    if (ok) {
+        $("#auth-screen").hide();
+        showStartScreen();
+        loadSavedGamesList();
+    } else {
+        localStorage.removeItem("access_token");
+    }
+})();
