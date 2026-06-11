@@ -30,7 +30,7 @@ $("#register-btn").on("click", async function () {
 
     } else {
 
-        alert("Failed to create account");
+        alert("Username already exists");
     }
 });
 
@@ -98,10 +98,17 @@ $("#login-btn").on("click", async function () {
 });
 
 async function saveGame(result) {
-    console.log("GLOBAL saveGame called");
+    console.log("SAVE GAME CALLED");
+    console.log("game object:", game);
+    console.log("history:", game.history());
+    console.log("fen:", game.fen());
+    console.log("snapshots:", moveSnapshots);
+    console.trace();
 
     const token = getToken();
-    if (!token) return;
+    if (!token) return false;
+
+    if (game.history().length === 0) return false;
 
     const response = await fetch(
         "http://127.0.0.1:8000/games/save",
@@ -120,7 +127,7 @@ async function saveGame(result) {
 
     if (!response.ok) {
         console.error("Failed to save game");
-        return;
+        return false;
     }
 
     const data = await response.json();
@@ -129,6 +136,7 @@ async function saveGame(result) {
     console.log("Refreshing saved games list...");
     await loadSavedGamesList();
     console.log("Done refreshing list");
+    return true;
 }
 
 async function loadGamesFromBackend() {
@@ -1225,8 +1233,14 @@ $("#forward-btn").on("click", function () {
 // ======================================================
 $("#save-game-btn").on("click", async function () {
     clearHintUI();
-    await saveGame("Manual Save");
-    alert("Game saved to backend!");
+
+    const success = await saveGame("Manual Save");
+
+    if (success) {
+        alert("Game saved to backend!");
+    } else {
+        alert("Game NOT saved (no moves or error).");
+    }
 });
 
 // ======================================================
@@ -1279,7 +1293,7 @@ async function loadSavedGamesList() {
                 <div class="saved-game-info">
                     <div><b>${game.result}</b></div>
                     <div style="font-size: 11px; opacity: 0.7;">
-                        ${game.created_at}
+                        ${new Date(game.created_at + "Z").toLocaleString()}
                     </div>
                 </div>
                 <button class="delete-btn">Delete</button>
@@ -1503,6 +1517,10 @@ function loadPGN(pgn) {
 
     reviewMode = false;
     reviewGame = null;
+
+    if (game.game_over()) {
+       enterReviewMode();
+    }
 
     requestEvaluation();
 

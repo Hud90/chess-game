@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from models import User
@@ -35,7 +36,17 @@ def create_user(
 
     db.add(new_user)
 
-    db.commit()
+    try:
+        db.commit()
+
+    except IntegrityError:
+
+        db.rollback()
+
+        raise HTTPException(
+            status_code=400,
+            detail="Username already exists"
+        )
 
     db.refresh(new_user)
 
