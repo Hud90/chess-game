@@ -6,6 +6,7 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Text
 from sqlalchemy import ForeignKey
+from sqlalchemy import Float
 from sqlalchemy.sql import func
 
 from database import Base
@@ -24,10 +25,9 @@ class User(Base):
 
 
 class Game(Base):
-
     __tablename__ = "games"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
 
     user_id = Column(
         Integer,
@@ -37,6 +37,16 @@ class Game(Base):
     pgn = Column(Text)
 
     result = Column(String)
+
+    difficulty = Column(Integer, nullable=True)
+
+    move_count = Column(Integer, nullable=True)
+
+    player_accuracy = Column(Float, nullable=True)
+
+    completion_time = Column(Integer, nullable=True)
+
+    opening = Column(String, nullable=True)
 
     created_at = Column(
         DateTime,

@@ -97,6 +97,92 @@ $("#login-btn").on("click", async function () {
     loadSavedGamesList();
 });
 
+function calculateAccuracy() {
+
+    if (accuracyScores.length === 0) {
+        return null;
+    }
+
+
+    let total = 0;
+    let count = 0;
+
+
+    accuracyScores.forEach(score => {
+
+        if (score !== null) {
+
+            total += score;
+
+            count++;
+
+        }
+
+    });
+
+
+    if (count === 0) {
+        return null;
+    }
+
+
+    return Math.round(total / count);
+}
+
+function calculateMoveAccuracy() {
+
+
+    if (lastEvalBeforeMove === null) {
+        return;
+    }
+
+
+    setTimeout(() => {
+
+
+        let currentEval = evalSnapshots[evalSnapshots.length - 1];
+
+
+        if (currentEval === undefined) {
+            return;
+        }
+
+
+        let loss;
+
+
+        if (game.turn() === "w") {
+            loss = lastEvalBeforeMove - currentEval;
+        } else {
+            loss = currentEval - lastEvalBeforeMove;
+        }
+
+        loss = Math.max(0, loss);
+        
+
+        let accuracy =
+            100 - (loss * 50);
+
+
+        accuracy =
+            Math.max(
+                0,
+                Math.min(
+                    100,
+                    accuracy
+                )
+            );
+
+
+        accuracyScores.push(
+            accuracy
+        );
+
+
+    }, 500);
+
+}
+
 async function saveGame(result) {
     console.log("SAVE GAME CALLED");
     console.log("game object:", game);
@@ -119,8 +205,23 @@ async function saveGame(result) {
                 "Authorization": "Bearer " + token
             },
             body: JSON.stringify({
+
                 pgn: game.pgn(),
-                result: result
+
+                result: result,
+
+                difficulty: parseInt($("#level").val()),
+
+                move_count: game.history().length,
+
+                completion_time:
+                    gameStartTime
+                        ? Math.floor((Date.now() - gameStartTime) / 1000)
+                        : null,
+
+                player_accuracy: calculateAccuracy(),
+
+                opening: null
             })
         }
     );
@@ -192,6 +293,7 @@ var engineThinking = false;
 var playerColor = "w";
 var gameStarted = false;
 var pendingPromotion = null;
+var gameStartTime = null;
 
 var gameMode = "new"; // or "pgn"
 
@@ -223,6 +325,8 @@ var currentViewIndex = -1;
 // EVAL SNAPSHOTS
 // =========================
 var evalSnapshots = [];
+var accuracyScores = [];
+var lastEvalBeforeMove = null;
 
 // =========================
 // CAPTURE VALUES
@@ -642,6 +746,10 @@ evalEngine.onmessage = function (e) {
         score *= -1;
     }
 
+    if (!reviewMode && gameStarted) {
+        lastEvalBeforeMove = score;
+    }
+
     updateEvalBar(score);
 };
 
@@ -905,6 +1013,8 @@ board = Chessboard("board", {
             return false;
         }
 
+        requestEvaluation();
+
         showMoves(source);
 
         return true;
@@ -1044,6 +1154,8 @@ function finishPlayerMove(source, target) {
 
     evalSnapshots.push(0);
 
+    accuracyScores.push(null);
+
     currentViewIndex = moveSnapshots.length - 1;
 
     board.position(game.fen(), false);
@@ -1051,6 +1163,8 @@ function finishPlayerMove(source, target) {
     clearMoves();
 
     requestEvaluation();
+
+    calculateMoveAccuracy();
 
     checkGameState();
 
@@ -1136,6 +1250,7 @@ window.chooseSide = function (color) {
     clearLastMove();
     engineThinking = false;
     gameStarted = true;
+    gameStartTime = Date.now()
 
     $("#start-screen").hide();
 
@@ -1574,6 +1689,8 @@ if (sharedPGN) {
 // RESTART
 // ======================================================
 function restartGame() {
+
+    gameStartTime = null;
 
     game.reset();
 

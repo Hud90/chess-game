@@ -36,8 +36,15 @@ def save_game(
 
     new_game = Game(
         user_id=user.id,
+
         pgn=game.pgn,
-        result=game.result
+        result=game.result,
+
+        difficulty=game.difficulty,
+        move_count=game.move_count,
+        player_accuracy=game.player_accuracy,
+        completion_time=game.completion_time,
+        opening=game.opening
     )
 
     db.add(new_game)
